@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nova Fleet</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: radial-gradient(circle at center, #0e1635, #03050e 70%);
+      color: #d8e6ff;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      line-height: 1.4;
+      font-size: 14px;
+      text-shadow: 0 0 10px rgba(120, 170, 255, 0.7);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud"></div>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const hud = document.getElementById("hud");
+    const keys = new Set();
+    const drones = [];
+    let laneOffset = 0;
+    let elapsed = 0;
+    let lanePulse = 0;
+
+    const player = {
+      x: 0,
+      y: 0,
+      speed: 280,
+      level: 1,
+      size: 18
+    };
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (!player.x) {
+        player.x = canvas.width / 2;
+        player.y = canvas.height * 0.76;
+      }
+    }
+
+    function createDrone(side, rank) {
+      const spacingX = 34 + rank * 10;
+      const spacingY = 30 + rank * 10;
+      return {
+        side,
+        rank,
+        x: player.x + side * spacingX,
+        y: player.y + spacingY,
+        vx: 0,
+        vy: 0
+      };
+    }
+
+    function rebalanceDrones(targetCount) {
+      while (drones.length < targetCount) {
+        const rank = Math.floor(drones.length / 2) + 1;
+        const side = drones.length % 2 === 0 ? -1 : 1;
+        drones.push(createDrone(side, rank));
+      }
+    }
+
+    function drawShip(x, y, size, hue, wingScale = 1) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.moveTo(0, -size);
+      ctx.lineTo(-size * wingScale, size * 0.8);
+      ctx.lineTo(0, size * 0.35);
+      ctx.lineTo(size * wingScale, size * 0.8);
+      ctx.closePath();
+      ctx.fillStyle = `hsl(${hue}, 90%, 65%)`;
+      ctx.fill();
+      ctx.strokeStyle = `hsla(${hue}, 100%, 80%, 0.9)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function update(dt) {
+      elapsed += dt;
+      lanePulse += dt * 2;
+
+      const vx = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
+      const vy = (keys.has("ArrowDown") || keys.has("s") ? 1 : 0) - (keys.has("ArrowUp") || keys.has("w") ? 1 : 0);
+
+      player.x += vx * player.speed * dt;
+      player.y += vy * player.speed * dt;
+      player.x = Math.min(canvas.width - 20, Math.max(20, player.x));
+      player.y = Math.min(canvas.height - 20, Math.max(20, player.y));
+
+      const nextLevel = Math.min(8, 1 + Math.floor(elapsed / 12));
+      if (nextLevel !== player.level) {
+        player.level = nextLevel;
+        player.size = 18 + player.level * 1.4;
+      }
+
+      rebalanceDrones(player.level * 2);
+      for (const drone of drones) {
+        const tx = player.x + drone.side * (34 + drone.rank * 14);
+        const ty = player.y + (26 + drone.rank * 14);
+        drone.vx += (tx - drone.x) * dt * 8;
+        drone.vy += (ty - drone.y) * dt * 8;
+        drone.vx *= 0.82;
+        drone.vy *= 0.82;
+        drone.x += drone.vx;
+        drone.y += drone.vy;
+      }
+
+      laneOffset = (laneOffset + dt * (170 + player.level * 14)) % 60;
+    }
+
+    function renderLane() {
+      const centerX = canvas.width / 2;
+      const pulse = Math.sin(lanePulse) * 0.04;
+      const laneWidthTop = canvas.width * (0.08 + pulse);
+      const laneWidthBottom = canvas.width * (0.42 + pulse);
+
+      ctx.fillStyle = "rgba(16, 36, 88, 0.18)";
+      ctx.beginPath();
+      ctx.moveTo(centerX - laneWidthTop, 0);
+      ctx.lineTo(centerX + laneWidthTop, 0);
+      ctx.lineTo(centerX + laneWidthBottom, canvas.height);
+      ctx.lineTo(centerX - laneWidthBottom, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(132, 191, 255, 0.65)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(centerX - laneWidthTop, 0);
+      ctx.lineTo(centerX - laneWidthBottom, canvas.height);
+      ctx.moveTo(centerX + laneWidthTop, 0);
+      ctx.lineTo(centerX + laneWidthBottom, canvas.height);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(195, 228, 255, 0.25)";
+      for (let y = -60; y < canvas.height + 60; y += 60) {
+        const lineY = y + laneOffset;
+        const t = lineY / canvas.height;
+        const halfWidth = laneWidthTop + (laneWidthBottom - laneWidthTop) * t;
+        ctx.beginPath();
+        ctx.moveTo(centerX - halfWidth, lineY);
+        ctx.lineTo(centerX + halfWidth, lineY);
+        ctx.stroke();
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      renderLane();
+      for (const drone of drones) {
+        drawShip(drone.x, drone.y, 8, 170 + drone.rank * 4, 0.7);
+      }
+      drawShip(player.x, player.y, player.size, 210 + player.level * 10, 1);
+
+      hud.innerHTML =
+        `Command Starfighter Mk-${player.level}<br>` +
+        `Wingman Drones: ${drones.length}<br>` +
+        `Controls: Arrow Keys / WASD`;
+    }
+
+    let previous = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - previous) / 1000);
+      previous = now;
+      update(dt);
+      render();
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener("resize", resize);
+    window.addEventListener("keydown", (event) => keys.add(event.key));
+    window.addEventListener("keyup", (event) => keys.delete(event.key));
+
+    resize();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
